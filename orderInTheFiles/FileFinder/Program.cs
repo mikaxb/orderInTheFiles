@@ -4,12 +4,15 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using ExifLib;
+using System.Data.SqlClient;
+using Dapper;
 
 namespace FileFinder
 {
 
     class Program
     {
+        private static string connectionString = @"Data Source=DESKTOP-2JVC76M\SQLEXPRESS;Initial Catalog=playground;Integrated Security=True";
         static void Main(string[] args)
         {
             WriteLine("Starting organizer.");
@@ -21,8 +24,12 @@ namespace FileFinder
                 WriteLine("Directory found");
                 try
                 {
-                    var iterator = new FileIterator();
-                    iterator.IterateDirectory(path);
+                    using (var connection = new SqlConnection(connectionString))
+                    {
+                        var iterator = new FileIterator(connection);
+                        iterator.IterateDirectory(path);
+                    }
+
                 }
                 catch (Exception ex)
                 {
@@ -44,7 +51,34 @@ namespace FileFinder
     public class FileIterator
     {
 
-        private static string connectionString = "DESKTOP-2JVC76M\SQLEXPRESS";
+        private SqlConnection dbconn;
+
+        private static string insertQuery = $@"
+            INSERT INTO [dbo].[Files]
+                       ([Name]
+                       ,[DirPath]
+                       ,[FullPath]
+                       ,[checksum]
+                       ,[suffix]
+                       ,[CreationTime]
+                       ,[SizeInBytes]
+                       ,[exif_datetaken])
+                 VALUES
+                       (@Name
+                       ,@DirPath
+                       ,@FullPath
+                       ,@checksum
+                       ,@suffix
+                       ,@CreationTime
+                       ,@SizeInBytes
+                       ,@exif_datetaken)";
+
+        public int FileCounter { get; set; }
+        public FileIterator(SqlConnection dbconn)
+        {
+            this.dbconn = dbconn;
+        }
+
         public void IterateDirectory(string path)
         {
             var subDirs = Directory.EnumerateDirectories(path);
@@ -55,18 +89,36 @@ namespace FileFinder
             var files = Directory.EnumerateFiles(path);
             foreach (string filePath in files)
             {
-                var ffInfo = GenerateFileFinderInfo(filePath, path);
+                if (!AlreadySaved(filePath))
+                {
+                    WriteLine(FileCounter + "SAVING: " + filePath);
+                    var ffInfo = GenerateFileFinderInfo(filePath, path);                    
+                    SaveInfoToDB(ffInfo);
+                    WriteLine(FileCounter + "SAVED: " + filePath);
+
+                }
+                else
+                {
+                    WriteLine(FileCounter + "ALREADY SAVED: " + filePath);
+                }
+                FileCounter++;
             }
+        }
+
+        private bool AlreadySaved(string path)
+        {
+            var query = "SELECT count(*) FROM[dbo].[Files] WHERE[FullPath] = @path";
+            var count = dbconn.QueryFirst<int>(query, new { path });
+            return count > 0;
         }
 
         private void SaveInfoToDB(FileFinderInfo ffInfo)
         {
-
+            dbconn.Execute(insertQuery, ffInfo);
         }
 
         private FileFinderInfo GenerateFileFinderInfo(string filePath, string dirPath)
         {
-            WriteLine(filePath);
             var ffInfo = new FileFinderInfo();
             ffInfo.DirPath = dirPath;
             ffInfo.FullPath = filePath;
@@ -79,19 +131,26 @@ namespace FileFinder
                 }
             }
             var info = new FileInfo(filePath);
-            ffInfo.Suffix = info.Extension;
+            ffInfo.Suffix = info.Extension.ToLower();
             ffInfo.Name = info.Name;
             ffInfo.SizeInBytes = info.Length;
             ffInfo.CreationTime = info.CreationTime;
 
             if (ffInfo.Suffix == ".jpg")
             {
-                using (ExifReader reader = new ExifReader(filePath))
+                try
                 {
-                    if (reader.GetTagValue<DateTime>(ExifTags.DateTimeDigitized, out DateTime datePictureTaken))
+                    using (ExifReader reader = new ExifReader(filePath))
                     {
-                        ffInfo.exif_datetaken = datePictureTaken;
+                        if (reader.GetTagValue<DateTime>(ExifTags.DateTimeDigitized, out DateTime datePictureTaken))
+                        {
+                            ffInfo.exif_datetaken = datePictureTaken;
+                        }
                     }
+                }
+                catch(Exception)
+                {
+                    WriteLine("No exif data");
                 }
             }
             return ffInfo;
