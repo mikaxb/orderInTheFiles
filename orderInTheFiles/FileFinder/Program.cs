@@ -33,7 +33,7 @@ namespace FileFinder
                 }
                 catch (Exception ex)
                 {
-                    WriteLine(ex);
+                    Logger.Log("#IterateDirectory TOP: " + DateTime.Now + Environment.NewLine + ex.ToString());
                 }
             }
             else
@@ -45,6 +45,26 @@ namespace FileFinder
             WriteLine("Done press enter to exit.");
             ReadLine();
         }
+    }
+
+    public static class Logger
+    {
+        private static string filePath = @"d:\filefinderlog.txt";
+
+
+        public static void Log(object tolog)
+        {
+            try
+            {
+                using (var stream = File.AppendText(filePath))
+                {
+                    stream.WriteLine(DateTime.Now.ToString());
+                    stream.WriteLine(tolog.ToString());
+                }
+            }
+            catch (Exception) { }
+        }
+
     }
 
 
@@ -84,22 +104,40 @@ namespace FileFinder
             var subDirs = Directory.EnumerateDirectories(path);
             foreach (string dirPath in subDirs)
             {
-                IterateDirectory(dirPath);
+                try
+                {
+                    IterateDirectory(dirPath);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log("#IterateDirectory");
+                    Logger.Log(dirPath);
+                    Logger.Log(ex);
+                }
             }
             var files = Directory.EnumerateFiles(path);
             foreach (string filePath in files)
             {
-                if (!AlreadySaved(filePath))
+                try
                 {
-                    WriteLine(FileCounter + "SAVING: " + filePath);
-                    var ffInfo = GenerateFileFinderInfo(filePath, path);                    
-                    SaveInfoToDB(ffInfo);
-                    WriteLine(FileCounter + "SAVED: " + filePath);
+                    if (!AlreadySaved(filePath))
+                    {
+                        WriteLine(FileCounter + "SAVING: " + filePath);
+                        var ffInfo = GenerateFileFinderInfo(filePath, path);
+                        SaveInfoToDB(ffInfo);
+                        WriteLine(FileCounter + "SAVED: " + filePath);
 
+                    }
+                    else
+                    {
+                        WriteLine(FileCounter + "ALREADY SAVED: " + filePath);
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
-                    WriteLine(FileCounter + "ALREADY SAVED: " + filePath);
+                    Logger.Log("#File loop: " + FileCounter);
+                    Logger.Log(filePath);
+                    Logger.Log(ex);
                 }
                 FileCounter++;
             }
@@ -148,7 +186,7 @@ namespace FileFinder
                         }
                     }
                 }
-                catch(Exception)
+                catch (Exception)
                 {
                     WriteLine("No exif data");
                 }
